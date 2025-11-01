@@ -1,3 +1,17 @@
+# ==============================================================================
+# API GATEWAY DEPLOYMENT
+# ==============================================================================
+#
+# PURPOSE: Deploys the API Gateway microservice
+#
+# WHY DEPLOYMENT (not StatefulSet):
+# - Stateless application (no persistent data)
+# - Pods are interchangeable (no unique identity needed)
+# - Can scale horizontally easily
+# - Rolling updates with zero downtime
+#
+# ==============================================================================
+
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -5,10 +19,17 @@ metadata:
   labels:
     app: api-gateway
 spec:
+  # Number of pod replicas
+  # WHY 2: High availability (if one pod fails, another serves traffic)
+  # Can scale: kubectl scale deployment api-gateway --replicas=5
   replicas: 2
+
+  # Selects pods to manage
   selector:
     matchLabels:
       app: api-gateway
+
+  # Pod template
   template:
     metadata:
       labels:
@@ -16,39 +37,111 @@ spec:
     spec:
       containers:
       - name: api-gateway
+
+        # Container image
+        # YOUR_REGISTRY: Placeholder replaced by CI/CD pipeline
+        # In CI/CD: ghcr.io/username/api-gateway:main-abc123
         image: YOUR_REGISTRY/api-gateway:latest
+
+        # Always pull latest image
+        # WHY: Ensures deployments get newest code
+        # Alternative: IfNotPresent (uses cached image if available)
         imagePullPolicy: Always
+
         ports:
-        - containerPort: 3000
+        - containerPort: 3000  # Port where container listens
+
+        # ENVIRONMENT VARIABLES
+        # Configuration passed to container
         env:
         - name: PORT
-          value: "3000"
+          value: "3000"  # Port for Express server
+
+        # Backend service URLs
+        # WHY these values: Kubernetes DNS service discovery
+        # Format: http://<service-name>:<port>
+        # Kubernetes automatically resolves service names to pod IPs
         - name: PRODUCT_SERVICE_URL
           value: "http://product-service:3001"
         - name: USER_SERVICE_URL
           value: "http://user-service:3002"
         - name: ORDER_SERVICE_URL
           value: "http://order-service:3003"
+
+        # ==============================================================================
+        # RESOURCE LIMITS
+        # ==============================================================================
+        #
+        # WHY: Prevents single pod from consuming all node resources
+        #
+        # REQUESTS: Guaranteed resources (minimum)
+        # - Kubernetes scheduler uses this to place pod on node
+        # - Node must have at least this much available
+        #
+        # LIMITS: Maximum resources allowed
+        # - Pod cannot exceed these limits
+        # - If exceeded, pod is throttled (CPU) or killed (memory)
+        #
+        # ==============================================================================
         resources:
           requests:
-            memory: "128Mi"
-            cpu: "100m"
+            memory: "128Mi"  # Minimum 128 megabytes RAM
+            cpu: "100m"      # Minimum 0.1 CPU cores (100 millicores)
           limits:
-            memory: "256Mi"
-            cpu: "200m"
+            memory: "256Mi"  # Maximum 256 megabytes RAM
+            cpu: "200m"      # Maximum 0.2 CPU cores
+
+        # ==============================================================================
+        # HEALTH CHECKS
+        # ==============================================================================
+        #
+        # Kubernetes uses these to monitor pod health and manage lifecycle
+        #
+        # ==============================================================================
+
+        # LIVENESS PROBE
+        # WHY: Detects if container is alive/responsive
+        # IF FAILS: Kubernetes restarts the container
+        # USE CASE: Detects deadlocks, infinite loops, crashed app
         livenessProbe:
           httpGet:
             path: /health
             port: 3000
-          initialDelaySeconds: 30
-          periodSeconds: 10
+          initialDelaySeconds: 30  # Wait 30s after start before first check
+          periodSeconds: 10        # Check every 10 seconds
+
+        # READINESS PROBE
+        # WHY: Detects if container is ready to receive traffic
+        # IF FAILS: Kubernetes removes pod from service load balancer
+        # USE CASE: Pod is alive but not ready (e.g., loading data, warming cache)
         readinessProbe:
           httpGet:
             path: /health
             port: 3000
-          initialDelaySeconds: 10
-          periodSeconds: 5
+          initialDelaySeconds: 10  # Wait 10s after start
+          periodSeconds: 5         # Check every 5 seconds
+
 ---
+# ==============================================================================
+# API GATEWAY SERVICE (LoadBalancer)
+# ==============================================================================
+#
+# PURPOSE: Exposes API Gateway to external traffic
+#
+# WHY LoadBalancer:
+# - Exposes service to internet (gets external IP)
+# - Cloud provider provisions load balancer
+# - Distributes traffic across pod replicas
+# - Provides single entry point for all clients
+#
+# SERVICE TYPES:
+# - ClusterIP: Internal only (default, used by microservices)
+# - NodePort: Exposes on each node's IP at static port
+# - LoadBalancer: Cloud load balancer with external IP (this one)
+# - ExternalName: Maps to external DNS name
+#
+# ==============================================================================
+
 apiVersion: v1
 kind: Service
 metadata:
@@ -56,10 +149,22 @@ metadata:
   labels:
     app: api-gateway
 spec:
+  # Selects pods with this label
+  # Traffic is distributed across all matching pods
   selector:
     app: api-gateway
+
   ports:
-  - port: 80
-    targetPort: 3000
+  - port: 80          # External port (what clients use)
+    targetPort: 3000  # Container port (where pod listens)
     protocol: TCP
+
+  # LoadBalancer type provisions cloud load balancer
+  # Cloud provider (GCP, AWS, Azure) creates:
+  # - External IP address
+  # - Load balancer distributing traffic to pods
+  # - Health checks to pods
+  #
+  # Access application: http://<EXTERNAL-IP>/
+  # Get external IP: kubectl get service api-gateway
   type: LoadBalancer

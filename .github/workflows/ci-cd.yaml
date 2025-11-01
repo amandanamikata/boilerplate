@@ -1,124 +1,347 @@
+# ==============================================================================
+# CI/CD PIPELINE FOR CLOUDSHOP MICROSERVICES
+# ==============================================================================
+#
+# PURPOSE: Automates testing, building, and deploying the entire application
+#
+# WHAT THIS DOES:
+# 1. Tests all microservices
+# 2. Builds Docker images
+# 3. Pushes images to container registry
+# 4. Deploys to Kubernetes cluster
+# 5. Verifies deployment success
+#
+# WHY CI/CD:
+# - Automation: No manual deployment steps
+# - Consistency: Same process every time
+# - Speed: Deploy in minutes, not hours
+# - Quality: Tests run before deployment
+# - Rollback: Easy to revert if issues occur
+#
+# TRIGGERS:
+# - Push to main branch: Full deployment
+# - Push to develop branch: Full deployment to dev environment
+# - Pull request to main: Run tests only (no deployment)
+#
+# ==============================================================================
+
 name: CI/CD Pipeline
 
+# ==============================================================================
+# WORKFLOW TRIGGERS
+# ==============================================================================
+#
+# WHEN THIS RUNS:
+# - push to main/develop: Tests + Build + Deploy
+# - pull_request to main: Tests only (protects main branch)
+#
+# ==============================================================================
 on:
   push:
     branches: [ main, develop ]
   pull_request:
     branches: [ main ]
 
+# ==============================================================================
+# ENVIRONMENT VARIABLES
+# ==============================================================================
+#
+# Available to all jobs in workflow
+#
+# ==============================================================================
 env:
+  # Container registry for Docker images
+  # ghcr.io = GitHub Container Registry (free with GitHub)
   REGISTRY: ghcr.io
+
+  # Image naming prefix
+  # ${{ github.repository_owner }} = GitHub username/org
+  # Example: ghcr.io/johndoe/product-service
   IMAGE_PREFIX: ${{ github.repository_owner }}
 
+# ==============================================================================
+# JOBS
+# ==============================================================================
+#
+# Workflow consists of 3 jobs that run in sequence:
+# 1. test: Run tests for all services
+# 2. build-and-push: Build and push Docker images (only on main push)
+# 3. deploy: Deploy to Kubernetes (only on main push)
+#
+# ==============================================================================
+
 jobs:
+  # ==============================================================================
+  # JOB 1: TEST
+  # ==============================================================================
+  #
+  # PURPOSE: Runs tests for all microservices
+  #
+  # WHY FIRST: Fail fast if code doesn't pass tests
+  # WHY MATRIX: Tests all 4 services in parallel (faster than sequential)
+  #
+  # ==============================================================================
   test:
     name: Run Tests
     runs-on: ubuntu-latest
+
+    # MATRIX STRATEGY
+    # WHY: Runs this job 5 times in parallel, once for each service
+    # Creates 5 parallel jobs: test (product-service), test (user-service), test (frontend), etc.
     strategy:
       matrix:
-        service: [product-service, user-service, order-service, api-gateway]
+        service: [product-service, user-service, order-service, api-gateway, frontend]
 
     steps:
+    # STEP 1: Get code from repository
+    # WHY: Runner needs code to test it
     - name: Checkout code
       uses: actions/checkout@v4
 
+    # STEP 2: Setup Node.js environment
+    # WHY: Microservices are Node.js applications
     - name: Setup Node.js
       uses: actions/setup-node@v4
       with:
-        node-version: '18'
-        cache: 'npm'
+        node-version: '18'  # Node.js version our apps require
+        cache: 'npm'        # Cache npm packages for faster runs
+        # Cache key based on service's package-lock.json
         cache-dependency-path: ${{ matrix.service }}/package-lock.json
 
+    # STEP 3: Install dependencies
+    # WHY: Need node_modules to run tests
+    # npm ci: Clean install (faster and more reliable than npm install)
     - name: Install dependencies
       working-directory: ./${{ matrix.service }}
       run: npm ci
 
+    # STEP 4: Run tests
+    # WHY: Verify code quality before building/deploying
+    # || echo: Continues even if no tests exist (for development)
     - name: Run tests
       working-directory: ./${{ matrix.service }}
       run: npm test || echo "No tests configured yet"
 
+  # ==============================================================================
+  # JOB 2: BUILD AND PUSH
+  # ==============================================================================
+  #
+  # PURPOSE: Builds Docker images and pushes to container registry
+  #
+  # WHEN: Only runs on push to main branch (after tests pass)
+  # WHY: Don't build images for pull requests (waste of resources)
+  #
+  # ==============================================================================
   build-and-push:
     name: Build and Push Docker Images
     runs-on: ubuntu-latest
+
+    # DEPENDENCY: Wait for tests to pass
+    # WHY: Don't build broken code
     needs: test
+
+    # CONDITION: Only on push to main
+    # WHY: Pull requests don't need images built
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    # MATRIX: Build all 5 services in parallel (including frontend)
     strategy:
       matrix:
-        service: [product-service, user-service, order-service, api-gateway]
+        service: [product-service, user-service, order-service, api-gateway, frontend]
 
+    # PERMISSIONS: Needed to push to GitHub Container Registry
+    # WHY: Security - explicitly grant permissions needed
     permissions:
-      contents: read
-      packages: write
+      contents: read   # Read repository code
+      packages: write  # Push to ghcr.io
 
     steps:
+    # STEP 1: Get code (needed for Dockerfiles)
     - name: Checkout code
       uses: actions/checkout@v4
 
+    # STEP 2: Setup Docker Buildx
+    # WHY: Advanced Docker builder with caching and multi-platform support
+    # Faster builds through layer caching
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
 
+    # STEP 3: Login to container registry
+    # WHY: Must authenticate before pushing images
+    # GITHUB_TOKEN: Automatically provided by GitHub Actions
     - name: Log in to Container Registry
       uses: docker/login-action@v3
       with:
         registry: ${{ env.REGISTRY }}
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
+        username: ${{ github.actor }}        # GitHub username
+        password: ${{ secrets.GITHUB_TOKEN }} # Auto-provided token
 
+    # STEP 4: Extract image metadata
+    # WHY: Generates proper image tags and labels
+    # CREATES:
+    # - main (branch name tag)
+    # - main-abc123 (branch + commit SHA)
+    # - latest (for default branch)
     - name: Extract metadata
       id: meta
       uses: docker/metadata-action@v5
       with:
+        # Base image name
         images: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/${{ matrix.service }}
+        # Tag generation rules
         tags: |
-          type=ref,event=branch
-          type=sha,prefix={{branch}}-
-          type=raw,value=latest,enable={{is_default_branch}}
+          type=ref,event=branch                           # Branch name (main, develop)
+          type=sha,prefix={{branch}}-                     # Branch + SHA (main-abc123)
+          type=raw,value=latest,enable={{is_default_branch}}  # Latest (only on main)
 
+    # STEP 5: Build and push Docker image
+    # WHY: Creates container image and uploads to registry
     - name: Build and push Docker image
       uses: docker/build-push-action@v5
       with:
-        context: ./${{ matrix.service }}
-        push: true
-        tags: ${{ steps.meta.outputs.tags }}
-        labels: ${{ steps.meta.outputs.labels }}
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
+        context: ./${{ matrix.service }}  # Build context (where Dockerfile is)
+        push: true                         # Push to registry (not just build)
+        tags: ${{ steps.meta.outputs.tags }}     # Tags from metadata step
+        labels: ${{ steps.meta.outputs.labels }} # Labels from metadata step
 
+        # CACHING: Significantly speeds up builds
+        # WHY: Reuses layers from previous builds
+        # type=gha: GitHub Actions cache
+        cache-from: type=gha  # Use cache for this build
+        cache-to: type=gha,mode=max  # Save cache for future builds
+
+  # ==============================================================================
+  # JOB 3: DEPLOY
+  # ==============================================================================
+  #
+  # PURPOSE: Deploys application to Kubernetes cluster
+  #
+  # WHEN: Only after build-and-push succeeds, only on main branch
+  # WHY: Don't deploy if tests failed or images didn't build
+  #
+  # FLOW:
+  # 1. Configure kubectl to connect to cluster
+  # 2. Update K8s manifests with new image tags
+  # 3. Apply manifests to cluster
+  # 4. Wait for deployments to complete
+  # 5. Verify all pods are running
+  #
+  # ==============================================================================
   deploy:
     name: Deploy to Kubernetes
     runs-on: ubuntu-latest
+
+    # DEPENDENCY: Wait for images to be built and pushed
     needs: build-and-push
+
+    # CONDITION: Only on push to main
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
 
     steps:
+    # STEP 1: Get K8s manifest files
     - name: Checkout code
       uses: actions/checkout@v4
 
+    # STEP 2: Configure kubectl
+    # WHY: kubectl needs credentials to access Kubernetes cluster
+    # KUBE_CONFIG: Stored in GitHub repository secrets
+    #   To set: Settings > Secrets > Actions > New repository secret
+    #   Value: base64-encoded kubeconfig file (cat ~/.kube/config | base64)
     - name: Configure kubectl
       uses: azure/k8s-set-context@v3
       with:
         method: kubeconfig
         kubeconfig: ${{ secrets.KUBE_CONFIG }}
 
+    # STEP 3: Update image tags in manifests
+    # WHY: K8s manifests have placeholder tags (YOUR_REGISTRY, :latest)
+    #      Need to replace with actual registry and specific commit SHA
+    #
+    # BEFORE: image: YOUR_REGISTRY/product-service:latest
+    # AFTER:  image: ghcr.io/username/product-service:main-abc123
+    #
+    # WHY COMMIT SHA: Ensures we deploy exact version that was just built
+    # WHY NOT :latest: :latest is ambiguous, SHA is specific and traceable
     - name: Update image tags in manifests
       run: |
+        # Replace YOUR_REGISTRY placeholder with actual registry
         sed -i "s|YOUR_REGISTRY|${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}|g" k8s/*.yaml
+
+        # Replace :latest with specific commit SHA
+        # Example: :latest becomes :main-abc123def
         sed -i "s|:latest|:main-${{ github.sha }}|g" k8s/*.yaml
 
+    # STEP 4: Deploy to Kubernetes
+    # WHY: kubectl apply updates cluster to match manifest files
+    # IDEMPOTENT: Safe to run multiple times, only changes what's different
+    #
+    # DEPLOYMENT ORDER:
+    # 1. Namespace (must exist before other resources)
+    # 2. Secrets (needed by MongoDB and services)
+    # 3. MongoDB (database must be ready before services)
+    # 4. Microservices (can start once database is ready)
     - name: Deploy to Kubernetes
       run: |
+        # Create namespace (if doesn't exist)
         kubectl apply -f k8s/namespace.yaml
+
+        # Create secrets (credentials for MongoDB, JWT, etc.)
         kubectl apply -f k8s/secrets.yaml -n simple-store
+
+        # Deploy MongoDB database
         kubectl apply -f k8s/mongodb/ -n simple-store
+
+        # Deploy microservices
         kubectl apply -f k8s/product-service.yaml -n simple-store
         kubectl apply -f k8s/user-service.yaml -n simple-store
         kubectl apply -f k8s/order-service.yaml -n simple-store
         kubectl apply -f k8s/api-gateway.yaml -n simple-store
 
+        # Deploy frontend
+        kubectl apply -f k8s/frontend.yaml -n simple-store
+
+    # STEP 5: Verify deployment
+    # WHY: Confirm all services deployed successfully
+    # ROLLOUT STATUS: Waits for deployment to complete
+    #   - Succeeds when all pods are ready
+    #   - Fails after timeout (5 minutes)
+    #   - Kubernetes performs rolling update (zero downtime)
+    #
+    # WHAT HAPPENS DURING ROLLOUT:
+    # 1. New pods created with new image
+    # 2. Wait for new pods to pass readiness probe
+    # 3. Old pods terminated gradually
+    # 4. If new pods fail, rollback automatically
     - name: Verify deployment
       run: |
+        # Wait for each service to finish rolling update
+        # Timeout after 5 minutes (should be much faster)
         kubectl rollout status deployment/product-service -n simple-store --timeout=5m
         kubectl rollout status deployment/user-service -n simple-store --timeout=5m
         kubectl rollout status deployment/order-service -n simple-store --timeout=5m
         kubectl rollout status deployment/api-gateway -n simple-store --timeout=5m
+        kubectl rollout status deployment/frontend -n simple-store --timeout=5m
+
+        # Show final pod status (for CI/CD logs)
         kubectl get pods -n simple-store
+
+        # Show frontend external IP
+        echo "Frontend URL:"
+        kubectl get service frontend -n simple-store
+
+# ==============================================================================
+# END OF CI/CD PIPELINE
+# ==============================================================================
+#
+# AFTER THIS WORKFLOW:
+# - All tests have passed
+# - Docker images built and pushed to ghcr.io
+# - Application deployed to Kubernetes
+# - All pods verified running
+# - Application accessible via LoadBalancer external IP
+#
+# TO ACCESS APPLICATION:
+# kubectl get service api-gateway -n simple-store
+# Look for EXTERNAL-IP, then visit http://EXTERNAL-IP/
+#
+# ==============================================================================

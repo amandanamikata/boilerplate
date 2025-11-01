@@ -1,3 +1,17 @@
+# ==============================================================================
+# MONGODB HEADLESS SERVICE
+# ==============================================================================
+#
+# PURPOSE: Provides network access to MongoDB StatefulSet pods
+#
+# WHY HEADLESS SERVICE (clusterIP: None):
+# - StatefulSets need stable network identities
+# - Each pod gets a predictable DNS name: mongodb-0.mongodb.simple-store.svc.cluster.local
+# - No load balancing needed (StatefulSets have ordered pod naming)
+# - Direct pod-to-pod communication for database connections
+#
+# ==============================================================================
+
 apiVersion: v1
 kind: Service
 metadata:
@@ -6,23 +20,64 @@ metadata:
     app: mongodb
 spec:
   ports:
-  - port: 27017
-    targetPort: 27017
-    name: mongodb
+  - port: 27017          # Service port (what other pods use to connect)
+    targetPort: 27017    # Container port (where MongoDB listens)
+    name: mongodb        # Named port for reference
+
+  # clusterIP: None makes this a "Headless Service"
+  # WHY: Allows direct access to individual StatefulSet pods
+  # Each pod gets DNS: <pod-name>.<service-name>.<namespace>.svc.cluster.local
   clusterIP: None
+
+  # Selects pods with label app=mongodb
   selector:
     app: mongodb
+
 ---
+# ==============================================================================
+# MONGODB STATEFULSET
+# ==============================================================================
+#
+# PURPOSE: Manages MongoDB database deployment with persistent storage
+#
+# WHY STATEFULSET (not Deployment):
+# - Stable pod names: mongodb-0, mongodb-1, etc. (predictable)
+# - Ordered deployment and scaling (mongodb-0 starts first)
+# - Persistent storage per pod (each pod has its own PersistentVolume)
+# - Stable network identity (each pod has consistent DNS name)
+#
+# WHEN TO USE STATEFULSET:
+# - Databases (like MongoDB, PostgreSQL, MySQL)
+# - Systems requiring stable storage
+# - Applications needing ordered startup/shutdown
+# - Clustered applications (Kafka, Elasticsearch, etc.)
+#
+# DIFFERENCE FROM DEPLOYMENT:
+# - Deployment: For stateless apps, pods are interchangeable
+# - StatefulSet: For stateful apps, each pod has unique identity
+#
+# ==============================================================================
+
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: mongodb
 spec:
+  # Links to the headless service above
+  # WHY: Provides network identity for pods
   serviceName: mongodb
+
+  # Number of MongoDB replicas
+  # WHY 1: Simple setup with single database instance
+  # In production: Use 3+ replicas for high availability (MongoDB replica set)
   replicas: 1
+
+  # Selects pods managed by this StatefulSet
   selector:
     matchLabels:
       app: mongodb
+
+  # Pod template - defines the MongoDB container
   template:
     metadata:
       labels:
@@ -30,29 +85,70 @@ spec:
     spec:
       containers:
       - name: mongodb
+        # MongoDB image from Docker Hub
+        # WHY version 7.0: Specific version for consistency
+        # PRODUCTION: Pin to exact version (7.0.4) to prevent unexpected updates
         image: mongo:7.0
+
         ports:
-        - containerPort: 27017
+        - containerPort: 27017  # MongoDB default port
           name: mongodb
+
+        # PERSISTENT STORAGE
+        # WHY: Database data must survive pod restarts
         volumeMounts:
-        - name: mongodb-data
-          mountPath: /data/db
+        - name: mongodb-data      # References volumeClaimTemplate below
+          mountPath: /data/db     # MongoDB's data directory
+
+        # ENVIRONMENT VARIABLES FROM SECRETS
+        # WHY: Database credentials must be secure
         env:
+        # Root username - read from Kubernetes Secret
+        # WHY Secret: Never hardcode credentials in config files
         - name: MONGO_INITDB_ROOT_USERNAME
           valueFrom:
             secretKeyRef:
-              name: mongodb-secret
-              key: username
+              name: mongodb-secret    # Secret name
+              key: username           # Key within secret
+
+        # Root password - read from Kubernetes Secret
         - name: MONGO_INITDB_ROOT_PASSWORD
           valueFrom:
             secretKeyRef:
               name: mongodb-secret
               key: password
+
+  # ==============================================================================
+  # VOLUME CLAIM TEMPLATES
+  # ==============================================================================
+  #
+  # PURPOSE: Automatically creates PersistentVolumeClaims for each pod
+  #
+  # WHY:
+  # - Each MongoDB pod needs its own storage
+  # - Storage persists even if pod is deleted/restarted
+  # - StatefulSet automatically creates PVC per pod
+  #
+  # HOW IT WORKS:
+  # - For mongodb-0: Creates PVC named "mongodb-data-mongodb-0"
+  # - Kubernetes provisions actual storage (depends on storage class)
+  # - Volume is mounted to /data/db in container
+  #
+  # ==============================================================================
   volumeClaimTemplates:
   - metadata:
       name: mongodb-data
     spec:
+      # ReadWriteOnce: Volume can be mounted by single node only
+      # WHY: Databases typically run on one node
+      # Alternatives: ReadWriteMany (for shared storage), ReadOnlyMany
       accessModes: [ "ReadWriteOnce" ]
+
+      # Storage size request
+      # WHY 10Gi: Sufficient for development/testing
+      # PRODUCTION: Size based on data growth projections
       resources:
         requests:
           storage: 10Gi
+      # NOTE: Storage class not specified - uses cluster default
+      # In production: Specify storageClassName for SSD, backup policies, etc.

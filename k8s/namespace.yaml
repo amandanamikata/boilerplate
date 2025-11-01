@@ -1,6 +1,28 @@
+# ==============================================================================
+# KUBERNETES NAMESPACE
+# ==============================================================================
+#
+# PURPOSE: Creates an isolated namespace for the CloudShop application
+#
+# WHY NAMESPACES:
+# - Isolation: Separates CloudShop resources from other applications in cluster
+# - Organization: Groups related resources together
+# - Resource Quotas: Can set limits per namespace
+# - Access Control: Can apply RBAC policies per namespace
+# - Name Scoping: Avoids naming conflicts with other applications
+#
+# ANALOGY: Like a folder that contains all your application's files
+#
+# ==============================================================================
+
 apiVersion: v1
 kind: Namespace
 metadata:
+  # Namespace name - all CloudShop resources will be deployed here
+  # Used in all kubectl commands: kubectl get pods -n simple-store
   name: simple-store
+
+  # Labels for organization and selection
+  # Can be used to query: kubectl get namespaces -l name=simple-store
   labels:
     name: simple-store

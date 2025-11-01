@@ -4,9 +4,10 @@ A simple e-commerce store built with microservices architecture, running on Kube
 
 ## Architecture
 
-The application consists of four microservices:
+The application consists of a **Vue.js frontend** and four backend microservices:
 
-- **API Gateway** (Port 3000) - Entry point for all client requests
+- **Frontend** (Port 80) - Vue.js web interface for customers
+- **API Gateway** (Port 3000) - Entry point for all API requests
 - **Product Service** (Port 3001) - Manages product catalog and inventory
 - **User Service** (Port 3002) - Handles user authentication and profiles
 - **Order Service** (Port 3003) - Processes and manages orders
@@ -15,6 +16,7 @@ Each service has its own MongoDB database and communicates via REST APIs.
 
 ## Tech Stack
 
+- **Frontend**: Vue.js 3, Vite, Pinia, Vue Router, Nginx
 - **Backend**: Node.js with Express
 - **Database**: MongoDB
 - **Container**: Docker
@@ -26,6 +28,7 @@ Each service has its own MongoDB database and communicates via REST APIs.
 
 ```
 cloudshop/
+├── frontend/             # Vue.js frontend application
 ├── api-gateway/          # API Gateway service
 ├── product-service/      # Product microservice
 ├── user-service/         # User microservice
@@ -34,11 +37,14 @@ cloudshop/
 │   ├── mongodb/          # MongoDB StatefulSet
 │   ├── namespace.yaml    # Kubernetes namespace
 │   ├── secrets.yaml      # Application secrets
+│   ├── frontend.yaml     # Frontend deployment
 │   ├── product-service.yaml
 │   ├── user-service.yaml
 │   ├── order-service.yaml
 │   └── api-gateway.yaml
-└── .github/workflows/    # GitHub Actions workflows
+├── .github/workflows/    # GitHub Actions workflows
+├── ARCHITECTURE.md       # Complete system architecture documentation
+└── FRONTEND_SETUP.md     # Frontend quick start guide
 ```
 
 ## Prerequisites
@@ -51,7 +57,19 @@ cloudshop/
 
 ## Local Development
 
-### Running Individual Services
+### Running Frontend
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Frontend will be available at `http://localhost:8080`
+
+See **[FRONTEND_SETUP.md](FRONTEND_SETUP.md)** for detailed frontend guide.
+
+### Running Backend Services
 
 Each service can be run locally:
 
@@ -123,13 +141,21 @@ kubectl get services -n simple-store
 
 ### 4. Access the Application
 
-Get the external IP of the API Gateway:
+Get the external IP of the frontend:
+
+```bash
+kubectl get service frontend -n simple-store
+```
+
+The web application will be available at `http://EXTERNAL-IP/`
+
+You can also access the API Gateway directly:
 
 ```bash
 kubectl get service api-gateway -n simple-store
 ```
 
-The API will be available at `http://EXTERNAL_IP/`
+The API will be available at `http://EXTERNAL-IP/`
 
 ## CI/CD with GitHub Actions
 

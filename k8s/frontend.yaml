@@ -1,0 +1,91 @@
+# ==============================================================================
+# FRONTEND DEPLOYMENT
+# ==============================================================================
+#
+# PURPOSE: Deploys Vue.js frontend application
+#
+# FEATURES:
+# - Nginx serving static files
+# - Proxies API requests to api-gateway
+# - Multiple replicas for availability
+# - LoadBalancer for external access
+#
+# ==============================================================================
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  labels:
+    app: frontend
+spec:
+  replicas: 2  # High availability
+
+  selector:
+    matchLabels:
+      app: frontend
+
+  template:
+    metadata:
+      labels:
+        app: frontend
+    spec:
+      containers:
+      - name: frontend
+        # Image will be replaced by CI/CD
+        image: YOUR_REGISTRY/frontend:latest
+        imagePullPolicy: Always
+
+        ports:
+        - containerPort: 80
+
+        # Resource limits
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "50m"
+          limits:
+            memory: "128Mi"
+            cpu: "100m"
+
+        # Health checks
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 10
+          periodSeconds: 10
+
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 5
+          periodSeconds: 5
+
+---
+# ==============================================================================
+# FRONTEND SERVICE
+# ==============================================================================
+#
+# PURPOSE: Exposes frontend to external traffic
+#
+# TYPE: LoadBalancer
+# WHY: Provides external IP for users to access web interface
+#
+# ==============================================================================
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend
+  labels:
+    app: frontend
+spec:
+  type: LoadBalancer  # External access
+  selector:
+    app: frontend
+  ports:
+  - port: 80          # External port
+    targetPort: 80    # Container port
+    protocol: TCP
