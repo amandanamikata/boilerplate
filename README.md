@@ -1,4 +1,4 @@
-# Simple Store - Microservices on Kubernetes
+# CloudShop- Microservices on Kubernetes
 
 A simple e-commerce store built with microservices architecture, running on Kubernetes with automated CI/CD using GitHub Actions.
 
@@ -25,7 +25,7 @@ Each service has its own MongoDB database and communicates via REST APIs.
 ## Project Structure
 
 ```
-simple-store/
+cloudshop/
 ├── api-gateway/          # API Gateway service
 ├── product-service/      # Product microservice
 ├── user-service/         # User microservice
