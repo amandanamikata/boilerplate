@@ -1,0 +1,89 @@
+version: '3.8'
+
+services:
+  mongodb:
+    image: mongo:7.0
+    container_name: mongodb
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: password123
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - store-network
+
+  product-service:
+    build:
+      context: ./product-service
+      dockerfile: Dockerfile
+    container_name: product-service
+    ports:
+      - "3001:3001"
+    environment:
+      PORT: 3001
+      MONGODB_URI: mongodb://mongodb:27017/products
+    depends_on:
+      - mongodb
+    networks:
+      - store-network
+
+  user-service:
+    build:
+      context: ./user-service
+      dockerfile: Dockerfile
+    container_name: user-service
+    ports:
+      - "3002:3002"
+    environment:
+      PORT: 3002
+      MONGODB_URI: mongodb://mongodb:27017/users
+      JWT_SECRET: your-secret-key-change-in-production
+    depends_on:
+      - mongodb
+    networks:
+      - store-network
+
+  order-service:
+    build:
+      context: ./order-service
+      dockerfile: Dockerfile
+    container_name: order-service
+    ports:
+      - "3003:3003"
+    environment:
+      PORT: 3003
+      MONGODB_URI: mongodb://mongodb:27017/orders
+      PRODUCT_SERVICE_URL: http://product-service:3001
+    depends_on:
+      - mongodb
+      - product-service
+    networks:
+      - store-network
+
+  api-gateway:
+    build:
+      context: ./api-gateway
+      dockerfile: Dockerfile
+    container_name: api-gateway
+    ports:
+      - "3000:3000"
+    environment:
+      PORT: 3000
+      PRODUCT_SERVICE_URL: http://product-service:3001
+      USER_SERVICE_URL: http://user-service:3002
+      ORDER_SERVICE_URL: http://order-service:3003
+    depends_on:
+      - product-service
+      - user-service
+      - order-service
+    networks:
+      - store-network
+
+volumes:
+  mongodb_data:
+
+networks:
+  store-network:
+    driver: bridge
