@@ -7,7 +7,7 @@ This guide provides step-by-step instructions for deploying the Simple Store app
 1. [Google Kubernetes Engine (GKE)](#google-kubernetes-engine-gke)
 2. [Amazon Elastic Kubernetes Service (EKS)](#amazon-elastic-kubernetes-service-eks)
 3. [Azure Kubernetes Service (AKS)](#azure-kubernetes-service-aks)
-4. [Local Development with Docker Compose](#local-development-with-docker-compose)
+4. [Local Development with Docker Compose] (#local-development-with-docker-compose)
 
 ---
 
