@@ -2,6 +2,13 @@
 
 A simple e-commerce store built with microservices architecture, running on Kubernetes with automated CI/CD using GitHub Actions.
 
+## 📚 Documentation
+
+- **[BEGINNER_GUIDE.md](BEGINNER_GUIDE.md)** - **START HERE!** Complete guide for beginners
+- **[FRONTEND_SETUP.md](FRONTEND_SETUP.md)** - Frontend quick start guide
+- **[ARCHITECTURE.md](ARCHITECTURE.md)** - Detailed system architecture
+- **[DEPLOYMENT.md](DEPLOYMENT.md)** - Deployment instructions
+
 ## Architecture
 
 The application consists of a **Vue.js frontend** and four backend microservices:
