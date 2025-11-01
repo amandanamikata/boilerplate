@@ -1,4 +1,4 @@
-# CloudShop- Microservices on Kubernetes
+# CloudShop - Microservices on Kubernetes
 
 A simple e-commerce store built with microservices architecture, running on Kubernetes with automated CI/CD using GitHub Actions.
 
